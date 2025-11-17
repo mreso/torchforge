@@ -7,27 +7,19 @@ A centralized framework for training language models on any OpenEnv task using G
 ```
 apps/openenv/
   ├── main.py                    # Generic training script
-  ├── julia_utils.py             # Julia task utilities
   ├── python_utils.py            # Python/coding task utilities
-  ├── llama3_8b_julia.yaml       # Julia training config
   └── llama3_8b_coding.yaml      # Python coding training config
 ```
 
 ## 🎯 Key Features
 
 - **Single Main Script**: One `main.py` works for all OpenEnv tasks
-- **Task-Specific Utils**: Language-specific logic in separate files (e.g., `julia_utils.py`, `python_utils.py`)
+- **Task-Specific Utils**: Task-specific logic in separate files (e.g., `python_utils.py`)
 - **YAML Configuration**: Use `!function` references to load task-specific functions
 - **AutoEnv Integration**: Automatic environment and action class loading
-- **Easy Extension**: Add new languages by creating new utils files
+- **Easy Extension**: Add new tasks by creating new utils files
 
 ## 🚀 Usage
-
-### Run Julia Training
-
-```bash
-python -m apps.openenv.main --config apps/openenv/llama3_8b_julia.yaml
-```
 
 ### Run Python Coding Training
 
@@ -41,65 +33,65 @@ Each task config needs:
 
 ```yaml
 task:
-  env_name: "julia"  # Environment name for AutoEnv
-  build_action: !function julia_utils.build_julia_action
-  evaluate_response: !function julia_utils.evaluate_julia_response
-  transform_sample: !function julia_utils.transform_julia_sample
+  env_name: "coding"  # Environment name for AutoEnv
+  build_action: !function apps.openenv.python_utils.build_python_action
+  evaluate_response: !function apps.openenv.python_utils.evaluate_python_response
+  transform_sample: !function apps.openenv.python_utils.transform_python_sample
 ```
 
 The `!function` tag references functions from the utils files in the same directory.
 
-## 🔧 Adding a New Language
+## 🔧 Adding a New Task
 
-To add support for a new language (e.g., Rust):
+To add support for a new task (e.g., Math problem solving):
 
 ### 1. Create Utils File
 
-Create `/home/kaiwu/work/kaiwu/forge/apps/openenv/rust_utils.py`:
+Create `apps/openenv/math_utils.py`:
 
 ```python
-from envs.rust_env import RustAction
+from envs import AutoAction
 
-def build_rust_action(response: str, sample: dict) -> RustAction:
-    """Build RustAction from model response."""
-    code = extract_rust_code(response)
-    return RustAction(code=code, test_code=sample.get("test", ""))
+def build_math_action(response: str, sample: dict):
+    """Build action from model response."""
+    MathAction = AutoAction.from_env("math")
+    answer = extract_answer(response)
+    return MathAction(answer=answer, problem=sample.get("problem", ""))
 
-def evaluate_rust_response(result, response: str, sample: dict) -> float:
-    """Evaluate Rust code execution and return reward."""
-    if result.observation.exit_code == 0:
+def evaluate_math_response(result, response: str, sample: dict) -> float:
+    """Evaluate execution result and return reward."""
+    if result.observation.is_correct:
         return 1.0
     return 0.0
 
-def transform_rust_sample(sample: dict, tokenizer) -> dict | None:
-    """Transform dataset sample for Rust tasks."""
-    # Build prompt using tokenizer
-    prompt = build_rust_prompt(sample, tokenizer)
+def transform_math_sample(sample: dict, tokenizer) -> dict | None:
+    """Transform dataset sample for math tasks."""
+    prompt = build_math_prompt(sample, tokenizer)
     return {
         "request": prompt,
-        "target": sample.get("test", ""),
+        "target": sample.get("answer", ""),
         "task_id": sample.get("task_id", ""),
     }
 
-def extract_rust_code(response: str) -> str:
-    """Extract Rust code from markdown blocks."""
+def extract_answer(response: str) -> str:
+    """Extract answer from model response."""
     # Implementation...
     pass
 ```
 
 ### 2. Create YAML Config
 
-Create `/home/kaiwu/work/kaiwu/forge/apps/openenv/llama3_8b_rust.yaml`:
+Create `apps/openenv/llama3_8b_math.yaml`:
 
 ```yaml
 task:
-  env_name: "rust"
-  build_action: !function rust_utils.build_rust_action
-  evaluate_response: !function rust_utils.evaluate_rust_response
-  transform_sample: !function rust_utils.transform_rust_sample
+  env_name: "math"
+  build_action: !function apps.openenv.math_utils.build_math_action
+  evaluate_response: !function apps.openenv.math_utils.evaluate_math_response
+  transform_sample: !function apps.openenv.math_utils.transform_math_sample
 
 dataset:
-  path: "path/to/rust/dataset"
+  path: "path/to/math/dataset"
   # ... other dataset config
 
 # ... rest of config (same as other tasks)
@@ -108,7 +100,7 @@ dataset:
 ### 3. Run It
 
 ```bash
-python -m apps.openenv.main --config apps/openenv/llama3_8b_rust.yaml
+python -m apps.openenv.main --config apps/openenv/llama3_8b_math.yaml
 ```
 
 That's it! No changes to `main.py` needed.
@@ -119,24 +111,24 @@ Each task utils file should implement these functions:
 
 ### Required Functions
 
-1. **`build_<lang>_action(response: str, sample: dict) -> Action`**
+1. **`build_<task>_action(response: str, sample: dict) -> Action`**
    - Builds environment action from model response
-   - Example: `build_julia_action`, `build_python_action`
+   - Example: `build_python_action`, `build_math_action`
 
-2. **`evaluate_<lang>_response(result, response: str, sample: dict) -> float`**
+2. **`evaluate_<task>_response(result, response: str, sample: dict) -> float`**
    - Evaluates execution result and returns reward (0.0 to 1.0)
-   - Example: `evaluate_julia_response`, `evaluate_python_response`
+   - Example: `evaluate_python_response`, `evaluate_math_response`
 
-3. **`transform_<lang>_sample(sample: dict, tokenizer) -> dict | None`**
+3. **`transform_<task>_sample(sample: dict, tokenizer) -> dict | None`**
    - Transforms raw dataset sample into training format
    - Returns dict with 'request', 'target', 'task_id' or None if invalid
-   - Example: `transform_julia_sample`, `transform_python_sample`
+   - Example: `transform_python_sample`, `transform_math_sample`
 
 ### Optional Helper Functions
 
-- **`get_<lang>_system_prompt() -> str`**: Get system prompt for the language
-- **`build_<lang>_prompt(sample: dict, tokenizer) -> str`**: Build formatted prompt
-- **`extract_<lang>_code(response: str) -> str`**: Extract code from markdown
+- **`get_<task>_system_prompt() -> str`**: Get system prompt for the task
+- **`build_<task>_prompt(sample: dict, tokenizer) -> str`**: Build formatted prompt
+- **`extract_<task>_code(response: str) -> str`**: Extract code/answer from markdown
 
 ## 🔍 How It Works
 
@@ -160,21 +152,29 @@ Each transformed sample should have:
 }
 ```
 
-## 🎓 Examples
+## 🎓 Example: Python Coding
 
-### Julia Utils
-
-- System prompt with strict formatting rules
-- Extract code from markdown blocks
-- Dense reward based on test pass rate
-- Handles Julia-specific syntax requirements
+The included Python utils demonstrate the pattern:
 
 ### Python Utils
 
-- Simple system prompt for Python coding
-- Binary/proportional reward structure
-- Extracts code from markdown blocks
-- Works with HumanEval dataset format
+- System prompt with coding guidelines
+- Code extraction from markdown blocks
+- Reward based on test execution results
+- Works with HumanEval and AceCode dataset formats
+
+### Key Functions
+
+```python
+# Extract Python code from markdown
+code = extract_python_code(response)
+
+# Build action for CodingEnv
+action = build_python_action(response, sample)
+
+# Evaluate using environment's reward
+reward = evaluate_python_response(result, response, sample)
+```
 
 ## 🔗 Integration with OpenEnv
 
@@ -183,8 +183,9 @@ This framework uses OpenEnv's AutoEnv feature:
 ```python
 from envs import AutoEnv, AutoAction
 
-env_class = AutoEnv.from_name("julia")      # Loads JuliaEnv
-action_class = AutoAction.from_env("julia")  # Loads JuliaAction
+# Automatically load the correct environment class
+env_class = AutoEnv.from_name("coding")      # Loads CodingEnv
+action_class = AutoAction.from_env("coding")  # Loads CodingAction
 ```
 
 Make sure your environment is registered in OpenEnv's registry.
@@ -197,16 +198,34 @@ Enable debug logging in main.py to see:
 - Reward calculation
 - Code extraction
 
-Set log level in YAML:
+Set log level via environment variable:
+```bash
+export LOG_LEVEL=DEBUG
+python -m apps.openenv.main --config apps/openenv/llama3_8b_coding.yaml
+```
+
+Or in YAML:
 ```yaml
 metric_logging:
   console:
+    logging_mode: global_reduce
     log_per_rank: True
 ```
 
 ## 📚 References
 
 - **GRPO Algorithm**: Grouped Relative Policy Optimization
-- **OpenEnv**: Generic environment framework
-- **AutoEnv**: Automatic environment detection
-- **GenericOpenEnvActor**: Docker-based environment execution
+- **OpenEnv**: Generic environment framework for agentic RL
+- **AutoEnv**: Automatic environment detection and loading
+- **GenericOpenEnvActor**: Docker-based environment execution actor
+
+## 🏗️ Architecture
+
+The framework uses the `GenericOpenEnvActor` from `forge.actors.generic_openenv` which:
+- Manages Docker container lifecycle
+- Handles dynamic port allocation
+- Provides automatic error recovery and container recreation
+- Supports zombie process cleanup for long-running tasks
+- Works with ANY OpenEnv environment (not just coding)
+
+See `src/forge/actors/generic_openenv.py` for implementation details.

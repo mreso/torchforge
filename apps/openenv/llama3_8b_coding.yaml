@@ -23,27 +23,29 @@ task:
 # Observability configuration
 metric_logging:
   wandb:
-    entity: "torchforge"
-    project: "kaiwu-general-grpo"
+    entity: "your-entity"  # Set your WandB entity here
+    project: "openenv-coding-grpo"
     logging_mode: global_reduce
   console:
     logging_mode: global_reduce
     log_per_rank: True
 
 # Dataset configuration
-#dataset:
-  # path: "TIGER-Lab/AceCode-87K"
-  # revision: "main"
-  # data_split: "train"
-  # streaming: true
-  # model: ${model}
+# Example using HuggingFace dataset:
 dataset:
-  path: "/home/kaiwu/work/kaiwu/AceCoder/train/train_rl/OpenRLHF/scripts/data/acecode_89k/acecode_hard02.json"
-  #path: "/home/kaiwu/work/kaiwu/AceCoder/train/train_rl/OpenRLHF/data/acecode_87K/acecode_87K.json"
+  path: "openai/openai_humaneval"  # Or "TIGER-Lab/AceCode-87K" for more examples
   revision: "main"
-  data_split: "train"
+  data_split: "test"
   streaming: false
   model: ${model}
+
+# Alternative: Use local JSON file
+# dataset:
+#   path: "/path/to/your/dataset.json"
+#   revision: "main"
+#   data_split: "train"
+#   streaming: false
+#   model: ${model}
 # OpenEnv configuration for GenericOpenEnvActor
 openenv_config:
   docker_image: "coding-env:latest"
