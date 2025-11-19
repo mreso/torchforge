@@ -31,6 +31,8 @@ _openenv_dir = Path(__file__).parent
 if str(_openenv_dir) not in sys.path:
     sys.path.insert(0, str(_openenv_dir))
 
+os.environ['HYPERACTOR_MESSAGE_DELIVERY_TIMEOUT']='180s'
+
 import torch
 import torch.nn.functional as F
 import torchstore as ts
