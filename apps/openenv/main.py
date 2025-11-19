@@ -619,15 +619,6 @@ async def main(cfg: DictConfig):
                 f"main Set PYTHON_ADDITIONAL_IMPORTS: {env_vars['PYTHON_ADDITIONAL_IMPORTS']}"
             )
 
-    # Create reward actor first (as actor, not service)
-    logger.debug("main Creating GenericRewardActor as actor...")
-    reward_actor = await GenericRewardActor.options(
-        **cfg.actors.reward_actor
-    ).as_actor(
-        evaluate_response_fn=evaluate_response_fn,
-    )
-    logger.debug("main GenericRewardActor created successfully")
-
     logger.debug("main Initializing GenericOpenEnvActor...")
     env_actor = await GenericOpenEnvActor.options(
         **cfg.services.get(f"{env_name}_env", cfg.services.get("env", {}))
@@ -639,8 +630,6 @@ async def main(cfg: DictConfig):
         container_timeout_s=container_timeout_s,
         request_timeout_s=request_timeout_s,
         container_memory_gb=container_memory_gb,
-        reward_actor=reward_actor,  # Pass reward_actor to env_actor
-        build_action_fn=build_action_fn,  # Pass build_action_fn to env_actor
     )
     logger.debug("main GenericOpenEnvActor initialized successfully")
 
@@ -672,6 +661,10 @@ async def main(cfg: DictConfig):
     ref_model_task = ReferenceModel.options(**cfg.services.ref_model).as_service(
         **cfg.ref_model
     )
+    logger.debug("main - Creating GenericRewardActor...")
+    reward_task = GenericRewardActor.options(**cfg.actors.reward_actor).as_actor(
+        evaluate_response_fn=evaluate_response_fn,
+    )
 
     logger.debug("main All tasks created, now awaiting asyncio.gather...")
     (
@@ -681,6 +674,7 @@ async def main(cfg: DictConfig):
         replay_buffer,
         compute_advantages,
         ref_model,
+        reward_actor,
     ) = await asyncio.gather(
         dataset_task,
         policy_task,
@@ -688,6 +682,7 @@ async def main(cfg: DictConfig):
         replay_task,
         advantages_task,
         ref_model_task,
+        reward_task,
     )
     logger.debug("main asyncio.gather completed successfully!")
 
@@ -745,11 +740,23 @@ async def main(cfg: DictConfig):
                 )
                 episodes.append(episode)
 
-            reward_tasks = [
-                env_actor.evaluate_response.route(
-                    prompt=prompt, response=response.text, target=target
+            # Orchestrate reward evaluation: build action → execute → evaluate
+            async def evaluate_single_response(response):
+                # Build action from response
+                sample = {"target": target}
+                action = build_action_fn(response.text, sample)
+
+                # Execute in environment
+                result = await env_actor.execute.route(action)
+
+                # Evaluate result
+                reward = await reward_actor.evaluate_result.call_one(
+                    result, response.text, target
                 )
-                for response in responses
+                return reward
+
+            reward_tasks = [
+                evaluate_single_response(response) for response in responses
             ]
             rewards = await asyncio.gather(*reward_tasks)
 
