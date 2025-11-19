@@ -254,7 +254,7 @@ class GenericRewardActor(ForgeActor):
     evaluate_response_fn: Callable
 
     @endpoint
-    def setup(self):
+    async def setup(self):
         """Ensure the openenv directory is in sys.path for imports."""
         logger.debug("GenericRewardActor.setup Starting setup...")
         openenv_dir = Path(__file__).parent
@@ -324,7 +324,7 @@ class GenericRewardActor(ForgeActor):
 @dataclass
 class ComputeAdvantages(ForgeActor):
     @endpoint
-    def setup(self):
+    async def setup(self):
         logger.debug("ComputeAdvantages.setup Setup complete!")
 
     @endpoint
@@ -348,7 +348,7 @@ class GenericDatasetActor(ForgeActor):
     transform_sample_fn: Callable | None = None
 
     @endpoint
-    def setup(self):
+    async def setup(self):
         """Ensure the openenv directory is in sys.path for imports."""
         openenv_dir = Path(__file__).parent
         if str(openenv_dir) not in sys.path:
@@ -663,8 +663,8 @@ async def main(cfg: DictConfig):
 
     logger.debug("main Initializing GenericOpenEnvActor...")
     env_actor = await GenericOpenEnvActor.options(
-        **cfg.actors.get(f"{env_name}_env", cfg.actors.get("env", {}))
-    ).as_actor(
+        **cfg.services.get(f"{env_name}_env", cfg.services.get("env", {}))
+    ).as_service(
         env_class=env_class,
         action_class=action_class,
         docker_image=docker_image,

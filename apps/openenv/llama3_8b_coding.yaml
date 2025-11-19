@@ -2,6 +2,11 @@
 # Using Generic OpenEnv Framework
 # >>> python -m apps.openenv.main --config apps/openenv/llama3_8b_coding.yaml
 
+# Launcher configuration (required for multi-node)
+provisioner:
+  launcher: slurm  # or "mast" depending on your cluster
+  job_name: "openenv-coding-grpo"
+
 # Global configuration
 group_size: 8
 batch_size: 4
@@ -62,6 +67,7 @@ openenv_config:
     - typing
     # Data Science & Numerical
     - numpy
+    - pandas
     # Data Structures & Collections
     - dataclasses
     - copy
@@ -211,6 +217,11 @@ services:
     num_replicas: 1
     mesh_name: reward_actor
     with_gpus: false
+  env:
+    procs: 1
+    num_replicas: 1
+    hosts: 1
+    mesh_name: coding_env
 
 actors:
   dataset:
@@ -229,7 +240,3 @@ actors:
     procs: 1
     with_gpus: false
     mesh_name: compute_advantages
-  env:
-    procs: 1
-    with_gpus: false
-    mesh_name: coding_env

@@ -7,6 +7,7 @@
 import argparse
 import functools
 import sys
+import yaml
 from argparse import Namespace
 from typing import Any, Callable
 
@@ -18,6 +19,31 @@ from omegaconf import DictConfig, OmegaConf
 # Add support for summing lists of numbers, e.g. ${sum:${max_req_tokens},${max_res_tokens}}
 OmegaConf.register_new_resolver("sum", lambda *args: sum(args), replace=True)
 OmegaConf.register_new_resolver("multiply", lambda a, b: a * b, replace=True)
+
+
+# Register !function YAML tag constructor for apps/openenv
+def function_constructor(loader, node):
+    """YAML constructor for !function tag used in OpenEnv configs."""
+    value = loader.construct_scalar(node)
+    return ("!function", value)
+
+
+# Monkey-patch OmegaConf to register our custom constructor
+_original_get_yaml_loader = None
+try:
+    from omegaconf import _utils as omegaconf_utils
+    _original_get_yaml_loader = omegaconf_utils.get_yaml_loader
+
+    def patched_get_yaml_loader():
+        """Patched version that includes !function constructor."""
+        loader = _original_get_yaml_loader()
+        yaml.add_constructor("!function", function_constructor, Loader=loader)
+        return loader
+
+    omegaconf_utils.get_yaml_loader = patched_get_yaml_loader
+except Exception as e:
+    # If patching fails, just try registering with SafeLoader
+    yaml.add_constructor("!function", function_constructor, Loader=yaml.SafeLoader)
 
 
 def _has_component(node: Any) -> bool:
