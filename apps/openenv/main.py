@@ -247,10 +247,8 @@ def dapo_loss(
 
 @dataclass
 class GenericRewardActor(ForgeActor):
-    """Generic reward actor that uses task-specific evaluation function."""
+    """Stateless reward actor with evaluation logic."""
 
-    env_actor: GenericOpenEnvActor
-    build_action_fn: Callable
     evaluate_response_fn: Callable
 
     @endpoint
@@ -263,60 +261,20 @@ class GenericRewardActor(ForgeActor):
         logger.debug("GenericRewardActor.setup Setup complete!")
 
     @endpoint
-    async def evaluate_response(self, prompt: str, response: str, target: Any) -> float:
-        """
-        Evaluate response using task-specific functions.
-
-        Args:
-            prompt: The problem description
-            response: The model's generated response
-            target: The target/test data from dataset
-
-        Returns:
-            Reward score
-        """
+    async def evaluate_result(self, result: Any, response: str, target: Any) -> float:
+        """Evaluate execution result and return reward."""
         try:
-            # Build action using task-specific function
-            # Pass the target as part of a sample dict
             sample = {"target": target}
-            action = self.build_action_fn(response, sample)
-
-            # Execute in environment
-            result = await self.env_actor.execute.call_one(action)
-
-            # Evaluate result using task-specific function
             reward = self.evaluate_response_fn(result, response, sample)
 
-            # Record reward metrics
-            record_metric(
-                "reward/evaluate_response/sum_reward",
-                reward,
-                Reduce.SUM,
-            )
-            record_metric(
-                "reward/evaluate_response/avg_reward",
-                reward,
-                Reduce.MEAN,
-            )
-            record_metric(
-                "reward/evaluate_response/std_reward",
-                reward,
-                Reduce.STD,
-            )
-            record_metric(
-                "reward/evaluate_response/count_calls",
-                1,
-                Reduce.SUM,
-            )
+            # Record metrics
+            record_metric("reward/evaluate_result/sum_reward", reward, Reduce.SUM)
+            record_metric("reward/evaluate_result/avg_reward", reward, Reduce.MEAN)
+            record_metric("reward/evaluate_result/count_calls", 1, Reduce.SUM)
 
             return reward
-
-        except asyncio.TimeoutError:
-            print("✗ Environment request timeout - Reward: 0.0")
-            record_metric("reward/timeout_errors", 1, Reduce.SUM)
-            return 0.0
         except Exception as e:
-            print(f"✗ Unexpected error in reward evaluation: {e} - Reward: 0.0")
+            logger.error(f"Error in evaluate_result: {e}")
             record_metric("reward/evaluation_errors", 1, Reduce.SUM)
             return 0.0
 
@@ -661,6 +619,15 @@ async def main(cfg: DictConfig):
                 f"main Set PYTHON_ADDITIONAL_IMPORTS: {env_vars['PYTHON_ADDITIONAL_IMPORTS']}"
             )
 
+    # Create reward actor first (as actor, not service)
+    logger.debug("main Creating GenericRewardActor as actor...")
+    reward_actor = await GenericRewardActor.options(
+        **cfg.actors.reward_actor
+    ).as_actor(
+        evaluate_response_fn=evaluate_response_fn,
+    )
+    logger.debug("main GenericRewardActor created successfully")
+
     logger.debug("main Initializing GenericOpenEnvActor...")
     env_actor = await GenericOpenEnvActor.options(
         **cfg.services.get(f"{env_name}_env", cfg.services.get("env", {}))
@@ -672,6 +639,8 @@ async def main(cfg: DictConfig):
         container_timeout_s=container_timeout_s,
         request_timeout_s=request_timeout_s,
         container_memory_gb=container_memory_gb,
+        reward_actor=reward_actor,  # Pass reward_actor to env_actor
+        build_action_fn=build_action_fn,  # Pass build_action_fn to env_actor
     )
     logger.debug("main GenericOpenEnvActor initialized successfully")
 
@@ -703,12 +672,6 @@ async def main(cfg: DictConfig):
     ref_model_task = ReferenceModel.options(**cfg.services.ref_model).as_service(
         **cfg.ref_model
     )
-    logger.debug("main - Creating GenericRewardActor...")
-    reward_task = GenericRewardActor.options(**cfg.services.reward_actor).as_service(
-        env_actor=env_actor,
-        build_action_fn=build_action_fn,
-        evaluate_response_fn=evaluate_response_fn,
-    )
 
     logger.debug("main All tasks created, now awaiting asyncio.gather...")
     (
@@ -718,7 +681,6 @@ async def main(cfg: DictConfig):
         replay_buffer,
         compute_advantages,
         ref_model,
-        reward_actor,
     ) = await asyncio.gather(
         dataset_task,
         policy_task,
@@ -726,7 +688,6 @@ async def main(cfg: DictConfig):
         replay_task,
         advantages_task,
         ref_model_task,
-        reward_task,
     )
     logger.debug("main asyncio.gather completed successfully!")
 
@@ -785,7 +746,7 @@ async def main(cfg: DictConfig):
                 episodes.append(episode)
 
             reward_tasks = [
-                reward_actor.evaluate_response.route(
+                env_actor.evaluate_response.route(
                     prompt=prompt, response=response.text, target=target
                 )
                 for response in responses

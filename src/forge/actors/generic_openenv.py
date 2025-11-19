@@ -7,7 +7,7 @@
 import logging
 import socket
 import traceback
-from typing import Any, Dict, Generic, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, Generic, Optional, Type, TypeVar
 
 from core.client_types import StepResult
 from core.env_server.types import Action, Observation
@@ -184,6 +184,8 @@ class GenericOpenEnvActor(ForgeActor, Generic[ActT, ObsT]):
         port: int = 8000,
         container_memory_gb: int = 4,
         enable_zombie_cleanup: bool = False,
+        reward_actor: Optional[Any] = None,
+        build_action_fn: Optional[Callable] = None,
     ):
         self.env_class = env_class
         self.action_class = action_class
@@ -194,6 +196,8 @@ class GenericOpenEnvActor(ForgeActor, Generic[ActT, ObsT]):
         self.port = port
         self.container_memory_gb = container_memory_gb
         self.enable_zombie_cleanup = enable_zombie_cleanup
+        self.reward_actor = reward_actor
+        self.build_action_fn = build_action_fn
         self.client: Optional[HTTPEnvClient[ActT, ObsT]] = None
 
     @endpoint
@@ -435,6 +439,64 @@ class GenericOpenEnvActor(ForgeActor, Generic[ActT, ObsT]):
 
         # Should never reach here, but for type safety
         raise RuntimeError("Execution failed after all retry attempts")
+
+    @endpoint
+    async def evaluate_response(self, prompt: str, response: str, target: Any) -> float:
+        """Orchestrate full evaluation: build action, execute, evaluate result.
+
+        This method coordinates the full evaluation flow:
+        1. Build action from response using build_action_fn
+        2. Execute action in environment
+        3. Evaluate execution result using reward actor
+
+        Args:
+            prompt: The problem description
+            response: The model's generated response
+            target: The target/test data from dataset
+
+        Returns:
+            Reward score (float)
+
+        Raises:
+            RuntimeError: If reward_actor or build_action_fn is not configured
+        """
+        if not self.reward_actor:
+            raise RuntimeError(
+                "reward_actor not configured. Pass reward_actor to GenericOpenEnvActor constructor."
+            )
+
+        if not self.build_action_fn:
+            raise RuntimeError(
+                "build_action_fn not configured. Pass build_action_fn to GenericOpenEnvActor constructor."
+            )
+
+        try:
+            # Build action locally using build_action_fn
+            logging.debug("Building action from response...")
+            sample = {"target": target}
+            action = self.build_action_fn(response, sample)
+            logging.debug(f"Action built: {action}")
+
+            # Execute in environment (local call)
+            logging.debug("Executing action in environment...")
+            result = await self.execute(action)
+            logging.debug(f"Execution result: {result}")
+
+            # Evaluate result using reward actor (only remote call)
+            logging.debug("Evaluating execution result...")
+            reward = await self.reward_actor.evaluate_result.call_one(
+                result, response, target
+            )
+            logging.debug(f"Reward computed: {reward}")
+
+            return reward
+
+        except Exception as e:
+            logging.error(f"Error in evaluate_response: {e}")
+            import traceback
+
+            traceback.print_exc()
+            return 0.0
 
     @endpoint
     async def cleanup_zombie_processes(self) -> int:

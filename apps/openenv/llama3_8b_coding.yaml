@@ -212,11 +212,6 @@ services:
     num_replicas: 1
     mesh_name: ref_model
     with_gpus: true
-  reward_actor:
-    procs: 1
-    num_replicas: 1
-    mesh_name: reward_actor
-    with_gpus: false
   env:
     procs: 1
     num_replicas: 1
@@ -240,3 +235,7 @@ actors:
     procs: 1
     with_gpus: false
     mesh_name: compute_advantages
+  reward_actor:
+    procs: 1
+    with_gpus: false
+    mesh_name: reward_actor
