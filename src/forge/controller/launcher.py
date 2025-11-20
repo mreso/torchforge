@@ -138,9 +138,9 @@ class Slurmlauncher(BaseLauncher):
         for role in appdef.roles:
             # Note - this is hardcoded to SLURM
             # We got this with sinfo
-            role.resource.memMB = 2062607
+            role.resource.memMB = 1655502
             role.resource.cpu = 128
-            role.resource.gpu = 8
+            role.resource.gpu = 4
 
         # Note - we cannot add in an empty workspace, so we create a fake temporary one
         temp_workspace = tempfile.mkdtemp(prefix="forge_workspace_")

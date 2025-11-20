@@ -214,7 +214,7 @@ services:
     with_gpus: true
   env:
     procs: 1
-    num_replicas: 1
+    num_replicas: 4
     hosts: 1
     mesh_name: coding_env
 

@@ -472,6 +472,9 @@ class GenericOpenEnvActor(ForgeActor, Generic[ActT, ObsT]):
             # Find all python processes in the container (excluding the main server process)
             ps_result = subprocess.run(
                 [
+                    "sudo",
+                    "-u",
+                    "ubuntu",
                     "docker",
                     "exec",
                     container_name,
